@@ -33,14 +33,23 @@ def main():
             index_col = f"{sensor} sleep_index"
 
             if sleep_col in data.columns and index_col in data.columns:
-                # Plot each sleep state with different colors
                 for state, color in sleep_colors.items():
                     state_data = data[data[sleep_col] == state]
-                    plt.scatter(state_data["dataTimestamp"], state_data[index_col],
-                                color=color, label=f"{sensor_labels[i]} - {state}", marker='o', alpha=0.7)
+                    plt.scatter(
+                        state_data["dataTimestamp"],
+                        state_data[index_col],
+                        color=color, marker='o', alpha=0.7
+                    )
+                plt.plot(
+                    data["dataTimestamp"],
+                    data[index_col],
+                    linestyle='-', alpha=0.5,
+                    label=f"{sensor_labels[i]} Trend"
+                )
 
-                # Plot the overall trend line
-                plt.plot(data["dataTimestamp"], data[index_col], linestyle='-', alpha=0.5, label=f"{sensor_labels[i]} Trend")
+        # Add two invisible scatter points for the legend (one for W, one for S) Helpful for legend clarity
+        plt.scatter([], [], color='red', marker='o', label='W')
+        plt.scatter([], [], color='blue', marker='o', label='S')
 
         # Formatting
         plt.xlabel("Time (HH:MM)")

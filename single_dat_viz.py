@@ -25,7 +25,7 @@ def main():
         for state, color in sleep_colors.items():
             state_data = data[data["sleep"] == state]
             plt.scatter(state_data["dataTimestamp"], state_data["sleep_index"], 
-                        color=color, label=state, marker='o')
+                        color=color, label=state, marker='o', s=5, alpha=0.7)
 
         # Plot the overall line for sleep index
         plt.plot(data["dataTimestamp"], data["sleep_index"], linestyle='-', color='gray', alpha=0.5)

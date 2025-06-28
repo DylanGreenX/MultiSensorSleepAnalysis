@@ -1,6 +1,28 @@
 import pandas as pd
 import numpy as np
 
+def format_time_column(time, baseline=None):
+    """
+    Convert an integer or float timestamp (elapsed seconds since baseline) into a formatted time string:
+    'YYYY-MM-DD HH:MM:SS.fff' given a baseline
+        
+    Parameters:
+        time (int or float): seconds since baseline.
+        baseline (int or float): Reference time.
+        
+    Returns:
+        str: Formatted timestamp string.
+    """
+    if isinstance(time, float) or isinstance(time, int):
+        if baseline is None:
+            raise ValueError("must provide baseline.")
+        dt = baseline + pd.to_timedelta(time, unit='s')
+    else:
+        raise TypeError("time must be int or float (seconds since baseline).")
+    
+    return dt.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]  # Trim to milliseconds
+
+
 # Actigraph adjustment function for each limb and axis
 def actigraph_adjustment_sing(data):
     data['count'] = np.minimum(data['axis1'] / 100, 300)
@@ -40,21 +62,20 @@ def apply_cole_kripke_1min_mult(data, column):
     )
     return data
 
-def format_cole_kripke_output(data):
+def format_cole_kripke_output(data, num_limbs=4):
     # Collect only the limb-level sleep classifications in the output
     output_data = pd.DataFrame()
     output_data['dataTimestamp'] = data['dataTimestamp']  # Keep timestamps
 
-    num_limbs = 4  # Assuming 4 limbs
     for limb in range(1, num_limbs + 1):
         output_data[f'Limb {limb} sleep_index'] = data[f'limb_{limb}_sleep_index']
         output_data[f'Limb {limb} sleep'] = data[f'limb_{limb}_sleep']
 
     return output_data
 
-def apply_cole_kripke_mult(data, output_file="cole_mult_results.csv"):
-    axes = ['axis1', 'axis2', 'axis3']  # x, y, z axes
-    num_limbs = 4  # Assuming 4 limbs
+
+def apply_cole_kripke_mult(data, num_limbs=4, output_file="cole_mult_results.csv"):
+    axes = ['axis1', 'axis2', 'axis3'] # x, y, z axes
 
     for limb in range(1, num_limbs + 1):
         limb_sleep_indices = []
@@ -71,16 +92,27 @@ def apply_cole_kripke_mult(data, output_file="cole_mult_results.csv"):
 
         # Assign sleep state for the limb based on the combined sleep index
         data[f'limb_{limb}_sleep'] = np.where(data[f'limb_{limb}_sleep_index'] < 1, 'S', 'W')
+    
+    # Convert timestamps back to the original
+    baseline = pd.Timestamp("2025-02-03 21:00:00")
+    if 'dataTimestamp' in data.columns:
+        data['dataTimestamp'] = data['dataTimestamp'].apply(lambda sec: format_time_column(sec, baseline=baseline))
 
     # Format the output and save to a CSV file
-    output_data = format_cole_kripke_output(data)
+    output_data = format_cole_kripke_output(data, num_limbs)
     output_data.to_csv(output_file, index=False)
-    print(f"Multi-sensor results saved to {output_file}")
+    print(f"Multi-sensor results saved to {output_file} (using {num_limbs} limbs)")
     return output_data
+        
 
 def apply_cole_kripke_single(data, output_file="cole_single_results.csv"):
     data = actigraph_adjustment_sing(data)
     data = apply_cole_kripke_1min_sing(data)
+    
+    # Convert timestamps back to the original
+    baseline = pd.Timestamp("2025-02-03 21:00:00")
+    if 'dataTimestamp' in data.columns:
+        data['dataTimestamp'] = data['dataTimestamp'].apply(lambda sec: format_time_column(sec, baseline=baseline))
 
     # Ensure `dataTimestamp` is retained
     output_columns = ['dataTimestamp', 'sleep_index', 'sleep']

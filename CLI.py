@@ -7,6 +7,8 @@ def main():
     parser = argparse.ArgumentParser(description='Run a specified algorithm on a given data file.')
     parser.add_argument('-a', '--algorithm', type=str, required=True,
                         help='Algorithm to run (e.g., O, S, C, SM, CM)')
+    parser.add_argument('-l', '--limbs', type=int, required=True,
+                        help='Number of limbs (e.g., 1-4)')
     parser.add_argument('-d', '--datafile', type=str, required=True,
                         help='Path to the data file (e.g., data_table.csv)')
     
@@ -36,7 +38,7 @@ def main():
         except ImportError:
             sys.exit("Error: Could not import 'apply_cole_kripke_mult' from 'apply_cole_kripke.py'. "
                     "Ensure the file exists and is in the Python path.")
-        result = apply_cole_kripke_mult(df)
+        result = apply_cole_kripke_mult(df, args.limbs)
 
     print("Algorithm Output:")
     print(result)

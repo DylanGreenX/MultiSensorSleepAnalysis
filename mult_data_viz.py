@@ -38,7 +38,7 @@ def main():
                     plt.scatter(
                         state_data["dataTimestamp"],
                         state_data[index_col],
-                        color=color, marker='o', alpha=0.7
+                        color=color, marker='o', alpha=0.7, s=6
                     )
                 plt.plot(
                     data["dataTimestamp"],

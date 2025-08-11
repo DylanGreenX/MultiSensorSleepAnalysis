@@ -30,15 +30,15 @@ def main():
             from apply_cole_kripke import apply_cole_kripke_single
         except ImportError:
             sys.exit("Error: Could not import 'apply_cole_kripke_single' from 'apply_cole_kripke.py'. "
-                    "Ensure the file exists and is in the Python path.")
+                     "Ensure the file exists and is in the Python path.")
         result = apply_cole_kripke_single(df)
         
-    elif args.algorithm == 'CM':  # args.algorithm == 'CM'
+    elif args.algorithm == 'CM':
         try:
             from apply_cole_kripke import apply_cole_kripke_mult
         except ImportError:
             sys.exit("Error: Could not import 'apply_cole_kripke_mult' from 'apply_cole_kripke.py'. "
-                    "Ensure the file exists and is in the Python path.")
+                     "Ensure the file exists and is in the Python path.")
         result = apply_cole_kripke_mult(df, args.limbs)
 
     elif args.algorithm == 'CMM':
@@ -79,7 +79,7 @@ def main():
     else:
         sys.exit(
             f"Error: Unknown algorithm '{args.algorithm}'. "
-            "Supported values are: C, CM, CW, S, TRO, CHO."
+            "Supported values are: C, CM, CMM, CW, S, TRO, CHO."
         )
 
     print("Algorithm Output:")

@@ -62,17 +62,6 @@ def apply_cole_kripke_1min_mult(data, column):
     )
     return data
 
-# def format_cole_kripke_output(data, num_limbs=4):
-#     # Collect only the limb-level sleep classifications in the output
-#     output_data = pd.DataFrame()
-#     output_data['dataTimestamp'] = data['dataTimestamp']  # Keep timestamps
-
-#     for limb in range(1, num_limbs + 1):
-#         output_data[f'Limb {limb} sleep_index'] = data[f'limb_{limb}_sleep_index']
-#         output_data[f'Limb {limb} sleep'] = data[f'limb_{limb}_sleep']
-
-#     return output_data
-
 def format_cole_kripke_output(data, num_limbs=4):
     """
     Build an output DataFrame with per‐limb indices + sleep,
@@ -84,7 +73,7 @@ def format_cole_kripke_output(data, num_limbs=4):
     # 1) copy over each limb's score + label
     for limb in range(1, num_limbs + 1):
         output_data[f'Limb {limb} sleep_index'] = data[f'limb_{limb}_sleep_index']
-        output_data[f'Limb {limb} sleep']       = data[f'limb_{limb}_sleep']
+        output_data[f'Limb {limb} sleep']        = data[f'limb_{limb}_sleep']
 
     # 2) weighted consensus vote
     #    limbs 2 & 4 (wrists) get weight=2; limbs 1 & 3 (ankles) get weight=1
@@ -241,7 +230,7 @@ def apply_cole_kripke_mult_majority(
     })
     for limb in range(1, num_limbs + 1):
         output_data[f'Limb {limb} sleep_index'] = data[f'limb_{limb}_sleep_index']
-        output_data[f'Limb {limb} sleep']       = data[f'limb_{limb}_sleep']
+        output_data[f'Limb {limb} sleep']        = data[f'limb_{limb}_sleep']
 
     # majority‐vote consensus: S if ≥ half limbs say S
     label_cols = [f'Limb {i} sleep' for i in range(1, num_limbs+1)]

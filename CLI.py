@@ -30,15 +30,57 @@ def main():
             from apply_cole_kripke import apply_cole_kripke_single
         except ImportError:
             sys.exit("Error: Could not import 'apply_cole_kripke_single' from 'apply_cole_kripke.py'. "
-                    "Ensure the file exists and is in the Python path.")
+                     "Ensure the file exists and is in the Python path.")
         result = apply_cole_kripke_single(df)
-    else:  # args.algorithm == 'CM'
+        
+    elif args.algorithm == 'CM':
         try:
             from apply_cole_kripke import apply_cole_kripke_mult
         except ImportError:
             sys.exit("Error: Could not import 'apply_cole_kripke_mult' from 'apply_cole_kripke.py'. "
-                    "Ensure the file exists and is in the Python path.")
+                     "Ensure the file exists and is in the Python path.")
         result = apply_cole_kripke_mult(df, args.limbs)
+
+    elif args.algorithm == 'CMM':
+        try:
+            from apply_cole_kripke import apply_cole_kripke_mult_majority
+        except ImportError:
+            sys.exit("Error: Could not import 'apply_cole_kripke_mult_majority'.")
+        result = apply_cole_kripke_mult_majority(df, args.limbs)
+
+    elif args.algorithm == 'CW':
+        try:
+            from apply_cole_kripke import apply_cole_kripke_mult_weighted
+        except ImportError:
+            sys.exit("Error: Could not import 'apply_cole_kripke_mult_weighted'.")
+        result = apply_cole_kripke_mult_weighted(df, args.limbs)
+
+    elif args.algorithm == 'S':
+        try:
+            from traditional_methods import apply_sadeh_combined
+        except ImportError:
+            sys.exit("Error: Could not import 'apply_sadeh_combined'.")
+        result = apply_sadeh_combined(df)
+
+    elif args.algorithm == 'TRO':
+        try:
+            from traditional_methods import apply_troiano_combined
+        except ImportError:
+            sys.exit("Error: Could not import 'apply_troiano_combined'.")
+        result = apply_troiano_combined(df)
+
+    elif args.algorithm == 'CHO':
+        try:
+            from traditional_methods import apply_choi_combined
+        except ImportError:
+            sys.exit("Error: Could not import 'apply_choi_combined'.")
+        result = apply_choi_combined(df)
+
+    else:
+        sys.exit(
+            f"Error: Unknown algorithm '{args.algorithm}'. "
+            "Supported values are: C, CM, CMM, CW, S, TRO, CHO."
+        )
 
     print("Algorithm Output:")
     print(result)

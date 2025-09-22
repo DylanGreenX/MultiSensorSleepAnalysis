@@ -1,6 +1,13 @@
 # MultiSensorSleepAnalysis
 
-This repository provides an end-to-end pipeline for converting raw accelerometer data (from one or more sensors - specifically the Axivity AX6) into actigraphy counts, applying sleep/wake classification algorithms (C currently Cole-Kripke and Multi-Sensor variations of it), and visualizing the resulting time series data.
+This repository provides an end-to-end pipeline for converting raw accelerometer data (from one or more sensors - specifically the Axivity AX6) into actigraphy counts, applying sleep/wake classification algorithms, and validating results against polysomnography (PSG) ground truth data.
+
+## Features
+- **Data Preprocessing**: Convert raw accelerometer data to 60-second epoch actigraphy counts
+- **Sleep Classification**: Multiple algorithms including Cole-Kripke variants and traditional methods
+- **PSG Validation**: Compare actigraphy results against polysomnography ground truth
+- **Comprehensive Visualization**: Timeline plots, validation metrics, and comparison charts
+- **Modular Architecture**: Clean, extensible codebase with organized modules
 
 > **Note**  
 > Parts of this pipeline adapt code from the [dipetkov/actigraph.sleepr](https://github.com/dipetkov/actigraph.sleepr/blob/master/R/apply_cole_kripke.R) repository, translating the original R implementation into Python.  
@@ -8,136 +15,204 @@ This repository provides an end-to-end pipeline for converting raw accelerometer
 > The procedure for generating actigraph counts from raw accelerometer data is based on [this paper](https://journals.lww.com/acsm-msse/fulltext/2017/11000/generating_actigraph_counts_from_raw_acceleration.25.aspx).
 
 ## Table of Contents
-1. [Overview of the Workflow](#overview-of-the-workflow)  
-2. [Requirements](#requirements)  
-3. [Usage](#usage)  
-   - [Data Generation & Preprocessing](#1-data-generation--preprocessing)  
-   - [Applying Sleep/Wake Algorithms](#2-applying-sleepwake-algorithms)  
-   - [Data Visualization](#3-data-visualization)
-5. [Legacy Code](#legacy-code)  
-6. [References](#references)  
+1. [Installation](#installation)
+2. [Project Structure](#project-structure)
+3. [Quick Start](#quick-start)
+4. [Detailed Usage](#detailed-usage)
+   - [Data Preprocessing](#data-preprocessing)
+   - [Sleep Classification](#sleep-classification)
+   - [PSG Validation](#psg-validation)
+   - [Visualization](#visualization)
+5. [Output Files](#output-files)
+6. [Legacy Code](#legacy-code)
+7. [References](#references)  
 
 ---
 
-## Overview of the Workflow
+## Installation
 
-1. **Raw Data Collection**  
-    You begin with one or more raw CSV files containing accelerometer data from different sensors (or limbs). Each file is typically *headerless*, with columns for timestamp and the x/y/z axes.
+### Requirements
+- Python 3.7+
+- Required packages listed in `requirements.txt`
 
-    When initially downloaded, data is formatted as follows:
-
-    ```
-    46:30.3, -0.059326, -0.519531, -0.745361
-    46:30.3, 0.631104, -0.555908, -0.665283
-    46:30.3, 0.431885, -0.566406, -0.79248
-    46:30.3, 0.431152, -0.51709, -0.580078
-    ```
-
-    The following preprocessing step will handle labeling this accordingly for the output files.
-
-2. **Preprocessing**  
-   The `preprocess.py` script converts each raw CSV into a set of 60-second epoch “actigraphy counts.” It does so by reading, resampling, bandpassing, and aggregating each accelerometer file. This preprocessing script can handle up to four sensors at one time.
-
-3. **Combining (Optional)**  
-   If multiple sensors are provided (e.g., from multiple limbs), `preprocess.py` can merge the resulting epoch data into a single CSV (labeled with suffixes like `_1, _2, etc.`). An individual formatted file will be produced for each sensor, as well as a combined actigraphy count file. They are then stored in a file with the following naming convention `MMDD_HHMMSS`
-
-4. **Applying Sleep/Wake Algorithms**  
-   Next, you can run the Cole-Kripke algorithm (in either single-sensor or multi-limb mode) using `CLI.py`. This code is structured so it can be extensible. Other algorithms were initially implemented as well (seen in Legacy Code), however, are not currently being worked on. The CLI calls the functions from `apply_cole_kripke.py`:
-   - **Single-limb** classification (flag `-a C`)  
-   - **Multi-limb** classification (flag `-a CM`)  
-
-5. **Visualization**  
-   Finally, you can visualize the resulting data with:
-   - `single_dat_viz.py` (for the single-limb CSV)  
-   - `mult_data_viz.py` (for multi-limb CSV)  
-
----
-
-## Requirements
-
-- Python 3.7+  
-- **Packages**: `pandas`, `numpy`, `matplotlib`, `scipy`, `argparse`, `tqdm`  
-  - Install via `pip install pandas numpy matplotlib scipy tqdm`
-
----
-
-## Usage
-
-### 1. Data Generation & Preprocessing
-
-**Script:** [`preprocess.py`](#preprocesspy)
-
-This script converts one or more raw CSV files (headerless) into 60-second epoch actigraphy counts. By default, it is tuned for Axivity data at ~100Hz, but can be adjusted with the `-r` parameter.
-
-Example usage:
+### Setup
 ```bash
-python preprocess.py file1.csv file2.csv -r 100 -o out_folder
-```
-**Positional arguments:**
-- `file1.csv file2.csv ...` up to 4 files
+# Clone the repository
+git clone <repository-url>
+cd MultiSensorSleepAnalysis
 
-**Options:**
-- `-r, --raw_rate`: Sampling rate of the raw files (e.g., 100 Hz)
-- `-o, --output_dir`: Output folder name (created inside `../test_data/` by default)
+# Install dependencies
+pip install -r requirements.txt
+
+# Install the package (optional, for development)
+pip install -e .
+```
+
+## Project Structure
+
+```
+MultiSensorSleepAnalysis/
+├── multisensor_sleep/           # Main package
+│   ├── algorithms/              # Sleep classification algorithms
+│   ├── preprocessing/           # Data preprocessing
+│   ├── validation/              # PSG validation module
+│   ├── visualization/           # Plotting and visualization
+│   └── utils/                   # Shared utilities
+├── scripts/                     # Command-line interfaces
+├── data/                        # Input data (raw, processed, samples)
+├── results/                     # All output files
+│   ├── algorithm_outputs/       # Classification results
+│   ├── validation/              # PSG validation results
+│   ├── visualizations/          # Generated plots
+│   └── reports/                 # Summary reports
+├── tests/                       # Unit tests
+├── legacy/                      # Archived code
+└── docs/                        # Documentation
+```
+
+## Quick Start
+
+```bash
+# 1. Preprocess raw accelerometer data
+python scripts/preprocess_data.py data/raw/sensor1.csv data/raw/sensor2.csv -o data/processed/
+
+# 2. Run sleep classification
+python scripts/cli.py -a C -l 1 -d data/processed/sensor_1_counts.csv
+
+# 3. Visualize results
+python scripts/visualize_results.py results/algorithm_outputs/cole_single_results.csv
+
+# 4. Validate against PSG (if available)
+python scripts/validate_psg.py -a results/algorithm_outputs/cole_single_results.csv -p data/psg_data.csv --lights_out "2025-01-01 22:00:00" --lights_on "2025-01-02 07:00:00"
+```
+
+---
+
+## Detailed Usage
+
+### Data Preprocessing
+
+Convert raw accelerometer CSV files into 60-second epoch actigraphy counts.
+
+```bash
+python scripts/preprocess_data.py [files...] [options]
+```
+
+**Arguments:**
+- `files`: Raw CSV files (up to 4, headerless format)
+- `-r, --raw_rate`: Sampling rate in Hz (default: 100)
+- `-o, --output_dir`: Output directory (default: data/processed/)
+
+**Input Format:**
+```
+46:30.3, -0.059326, -0.519531, -0.745361
+46:30.3, 0.631104, -0.555908, -0.665283
+```
 
 **Output:**
-- A CSV file for each input (sensor_1_counts.csv, sensor_2_counts.csv, …)
-- Optionally a combined_counts.csv if more than one input file is provided.
+- `sensor_N_counts.csv` for each input file
+- `combined_counts.csv` if multiple files provided
+- Files saved to `data/processed/MMDD_HHMMSS/`
 
-### 2. Applying Sleep/Wake Algorithms
+### Sleep Classification
 
-**Script:** [`CLI.py`](#clipy)
+Apply sleep/wake classification algorithms to preprocessed actigraphy data.
 
-Once you have a CSV with epoch-level counts (from either a single sensor or multiple sensors merged), you can run Cole-Kripke classification to get sleep vs. wake labels.
-
-Example usage:
 ```bash
-python CLI.py -a C -d path_to_preprocessed_counts.csv
+python scripts/cli.py -a [algorithm] -l [limbs] -d [datafile]
 ```
 
-**Options:**
-- `-a, --algorithm`:
-    - `C` = Cole-Kripke for a single sensor
-    - `CM` = Cole-Kripke for multiple limbs 
-    
-    *Multi Limb algorithms are intended for four sensors. Currently running CM with a combined file with less than four sensors will NOT fail gracefully. This will be revised at a later date. Allthough we can create combined files with less sensors, this was more of a future proofing methodology incase we deem it necessary to run algorithms on subsection (say two groups of two sensors)*
+**Available Algorithms:**
+- `C`: Cole-Kripke single sensor
+- `CM`: Cole-Kripke multi-limb
+- `CMM`: Cole-Kripke multi-limb with majority voting
+- `CW`: Cole-Kripke multi-limb with weighted consensus
+- `S`: Sadeh algorithm
+- `TRO`: Troiano algorithm
+- `CHO`: Choi algorithm
 
-- `-d, --datafile`: Path to the actigraphy counts CSV
+**Arguments:**
+- `-a, --algorithm`: Algorithm type (required)
+- `-l, --limbs`: Number of limbs/sensors (1-4, required)
+- `-d, --datafile`: Path to preprocessed counts CSV (required)
 
 **Output:**
-- For single-sensor mode (C), a file named `cole_single_results.csv`
-- For multi-limb mode (CM), a file named `cole_mult_results.csv`
-- Each line includes the timestamps and a “sleep index” per sensor/limb, plus a sleep column labeling each minute as S (sleep) or W (wake).
+- Results saved to `results/algorithm_outputs/`
+- Filename format: `[algorithm]_results.csv`
+- Contains timestamps, sleep indices, and S/W classifications
 
-### 3. Data Visualization 
+### PSG Validation
 
-*Note this section is still heavily a work in progress. This really for my own ability to understand the data I am looking at. Visualization will be focused on heavily once I am happy with the core underlying algorithms.*
+Validate actigraphy results against polysomnography (PSG) ground truth data.
 
-**Scripts:**
-- `single_dat_viz.py`
-- `mult_data_viz.py`
-
-#### Single-Sensor Plot
-
-For results generated by the single-sensor Cole-Kripke approach (`cole_single_results.csv`), you can visualize the sleep index over time by running:
 ```bash
-python single_dat_viz.py cole_single_results.csv
+python scripts/validate_psg.py -a [actigraphy_file] -p [psg_file] --lights_out [time] --lights_on [time] [options]
 ```
-A matplotlib window will pop up showing:
-- Scatter points colored by sleep state (S in blue, W in red)
-- A trend line for the sleep index
 
-#### Multi-Limb Plot
+**Arguments:**
+- `-a, --actigraphy`: Actigraphy results CSV file
+- `-p, --psg`: PSG data CSV file (30-second epochs)
+- `--lights_out`: Lights out timestamp (ISO format)
+- `--lights_on`: Lights on timestamp (ISO format)
+- `-o, --output`: Output directory (default: results/validation/)
 
-For results generated by the multi-limb Cole-Kripke approach (`cole_mult_results.csv`), use:
+**PSG Data Format:**
+```csv
+timestamp,sleep_stage
+2025-01-01 22:30:00,Wake
+2025-01-01 22:30:30,N2
+2025-01-01 22:31:00,N3
+```
+
+**Output:**
+- Validation metrics (sensitivity, specificity, F1 score)
+- Epoch-by-epoch comparison
+- Confusion matrix
+- Timeline comparison plots
+
+### Visualization
+
+Generate plots and visualizations for sleep analysis results.
+
 ```bash
-python mult_data_viz.py cole_mult_results.csv
+python scripts/visualize_results.py [results_file] [options]
 ```
-You’ll see different trends for each limb plotted over time, and the same color coding for sleep/wake classification. This allows comparing the sleep indices across multiple limbs.
+
+**Features:**
+- Timeline plots with sleep/wake states
+- Multi-sensor comparisons
+- Algorithm performance metrics
+- Validation result visualizations
+
+**Output:**
+- Plots saved to `results/visualizations/`
+- Interactive and static plot options
+- Customizable color schemes and layouts
+
+## Output Files
+
+### Algorithm Results
+**Location:** `results/algorithm_outputs/`
+- `cole_single_results.csv`: Single-sensor Cole-Kripke results
+- `cole_mult_results.csv`: Multi-sensor Cole-Kripke results
+- `[algorithm]_results.csv`: Results from other algorithms
+
+### Validation Results
+**Location:** `results/validation/`
+- `validation_metrics.csv`: Performance metrics summary
+- `epoch_comparison.csv`: Epoch-by-epoch comparison
+- `confusion_matrix.png`: Visual confusion matrix
+- `timeline_comparison.png`: Side-by-side timeline plots
+
+### Visualizations
+**Location:** `results/visualizations/`
+- Timeline plots showing sleep/wake patterns
+- Multi-sensor comparison charts
+- Algorithm performance visualizations
 
 ## Legacy Code
 
-There is a folder named `Legacy Code` containing older scripts (e.g., `legacy_CLI.py`, `apply_choi.py`, etc.). These files are preserved for reference on earlier development approaches but are not the recommended for use currently. If we determine later on that there is value in persuing these algorithms, they will be available. These files me also server to help create figures / explain our development cycle to get to our end goal.
+The `legacy/` folder contains older implementations preserved for reference. These include earlier algorithm versions and development approaches. Current users should use the main pipeline described above.
 
 ## References
 

@@ -2,254 +2,212 @@ import pandas as pd
 import numpy as np
 import os
 
+
 def ensure_output_dir(filepath):
     """Ensure output directory exists for the given filepath."""
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
-def format_time_column(time, baseline=None):
-    """
-    Convert an integer or float timestamp (elapsed seconds since baseline) into a formatted time string:
-    'YYYY-MM-DD HH:MM:SS.fff' given a baseline
-        
-    Parameters:
-        time (int or float): seconds since baseline.
-        baseline (int or float): Reference time.
-        
-    Returns:
-        str: Formatted timestamp string.
-    """
-    if isinstance(time, float) or isinstance(time, int):
-        if baseline is None:
-            raise ValueError("must provide baseline.")
-        dt = baseline + pd.to_timedelta(time, unit='s')
-    else:
-        raise TypeError("time must be int or float (seconds since baseline).")
-    
-    return dt.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]  # Trim to milliseconds
+# Timestamp conversion helper function
+def format_timestamp(seconds, baseline):
+    dt = baseline + pd.to_timedelta(seconds, unit='s')
+    return dt.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
 
-# Actigraph adjustment function for each limb and axis
-def actigraph_adjustment_sing(data):
-    data['count'] = np.minimum(data['axis1'] / 100, 300)
+def _restore_timestamps(data, baseline):
+    """Convert the dataTimestamp column from elapsed seconds to real timestamps.
+
+    Modifies data in-place and returns it.
+    """
+    if 'dataTimestamp' in data.columns:
+        data['dataTimestamp'] = data['dataTimestamp'].apply(
+            lambda sec: format_timestamp(sec, baseline)
+        )
     return data
 
-def actigraph_adjustment_mult(data, column):
-    # Scale and cap activity counts
-    data[f'{column}_adjusted'] = np.minimum(data[column] / 100, 300)
-    return data
+# Cole-Kripke Index calculation function
+def cole_kripke_index(counts):
+    """Compute the Cole-Kripke (1992) sleep index for a single count series.
 
-def apply_cole_kripke_1min_sing(data):
-    # Apply the sleep index formula using shift for lag and lead
-    data['sleep_index'] = 0.001 * (
-        106 * data['count'].shift(4, fill_value=0) +
-        54 * data['count'].shift(3, fill_value=0) +
-        58 * data['count'].shift(2, fill_value=0) +
-        76 * data['count'].shift(1, fill_value=0) +
-        230 * data['count'] +
-        74 * data['count'].shift(-1, fill_value=0) +
-        67 * data['count'].shift(-2, fill_value=0)
+    Preprocessing:
+        Activity counts are scaled by 1/100 and capped at 300, consistent
+        with the ActiGraph count normalization used in the original study.
+
+    Algorithm:
+        A weighted linear combination over a 7-epoch window centered on
+        the current epoch (4 preceding, current, 2 following):
+
+        SI = 0.001 * (106*C[t-4] + 54*C[t-3] + 58*C[t-2] +
+                       76*C[t-1] + 230*C[t] + 74*C[t+1] + 67*C[t+2])
+
+        Sleep if SI < 1.0, Wake otherwise.
+
+    Reference:
+        Cole, R. J., Kripke, D. F., Gruen, W., Mullaney, D. J., & Gillin, J. C.
+        (1992). Automatic sleep/wake identification from wrist activity.
+        Sleep, 15(5), 461-469.
+    """
+    scaled = np.minimum(np.asarray(counts, dtype=float) / 100, 300)
+    s = pd.Series(scaled)
+
+    si = 0.001 * (
+        106 * s.shift(4, fill_value=0) +
+         54 * s.shift(3, fill_value=0) +
+         58 * s.shift(2, fill_value=0) +
+         76 * s.shift(1, fill_value=0) +
+        230 * s +
+         74 * s.shift(-1, fill_value=0) +
+         67 * s.shift(-2, fill_value=0)
     )
 
-    # Assign sleep state based on the sleep index
-    data['sleep'] = np.where(data['sleep_index'] < 1, 'S', 'W')
-    return data
-
-def apply_cole_kripke_1min_mult(data, column):
-    # Calculate sleep index using shifted activity counts
-    data[f'{column}_sleep_index'] = 0.001 * (
-        106 * data[f'{column}_adjusted'].shift(4, fill_value=0) +
-        54 * data[f'{column}_adjusted'].shift(3, fill_value=0) +
-        58 * data[f'{column}_adjusted'].shift(2, fill_value=0) +
-        76 * data[f'{column}_adjusted'].shift(1, fill_value=0) +
-        230 * data[f'{column}_adjusted'] +
-        74 * data[f'{column}_adjusted'].shift(-1, fill_value=0) +
-        67 * data[f'{column}_adjusted'].shift(-2, fill_value=0)
-    )
-    return data
-
-def format_cole_kripke_output(data, num_limbs=4):
-    """
-    Build an output DataFrame with per‐limb indices + sleep,
-    then append a weighted consensus sleep label.
-    """
-    output_data = pd.DataFrame()
-    output_data['dataTimestamp'] = data['dataTimestamp']
-
-    # 1) copy over each limb's score + label
-    for limb in range(1, num_limbs + 1):
-        output_data[f'Limb {limb} sleep_index'] = data[f'limb_{limb}_sleep_index']
-        output_data[f'Limb {limb} sleep']        = data[f'limb_{limb}_sleep']
-
-    # 2) weighted consensus vote
-    #    limbs 2 & 4 (wrists) get weight=2; limbs 1 & 3 (ankles) get weight=1
-    weights = {1: 1, 2: 2, 3: 1, 4: 2}
-
-    def vote(row):
-        w_sleep = sum(weights[i]
-                      for i in range(1, num_limbs+1)
-                      if row[f'Limb {i} sleep'] == 'S')
-        w_wake  = sum(weights[i]
-                      for i in range(1, num_limbs+1)
-                      if row[f'Limb {i} sleep'] == 'W')
-        return 'S' if w_sleep >= w_wake else 'W'
-
-    output_data['sleep'] = output_data.apply(vote, axis=1)
-
-    return output_data
+    return si.values
 
 
-def apply_cole_kripke_mult(data, num_limbs=4, output_file="results/algorithm_outputs/cole_mult_results.csv"):
-    axes = ['axis1', 'axis2', 'axis3'] # x, y, z axes
+# Shared per-limb computation helper function
+def compute_per_limb(data, num_limbs=4):
+    axes = ['axis1', 'axis2', 'axis3']
 
     for limb in range(1, num_limbs + 1):
         limb_sleep_indices = []
 
         for axis in axes:
             column = f'{axis}_{limb}'
-            # Apply the adjustment and Cole-Kripke for each axis of each limb
-            data = actigraph_adjustment_mult(data, column)
-            data = apply_cole_kripke_1min_mult(data, column)
+            data[f'{column}_sleep_index'] = cole_kripke_index(data[column])
             limb_sleep_indices.append(data[f'{column}_sleep_index'])
 
-        # Combine sleep indices for the limb by averaging the values across axes
+        # Average across axes for this limb
         data[f'limb_{limb}_sleep_index'] = sum(limb_sleep_indices) / len(limb_sleep_indices)
+        data[f'limb_{limb}_sleep'] = np.where(
+            data[f'limb_{limb}_sleep_index'] < 1, 'S', 'W'
+        )
 
-        # Assign sleep state for the limb based on the combined sleep index
-        data[f'limb_{limb}_sleep'] = np.where(data[f'limb_{limb}_sleep_index'] < 1, 'S', 'W')
-    
-    # Convert timestamps back to the original
-    baseline = pd.Timestamp("2025-02-03 21:00:00")
+    return data
+
+
+def format_per_limb_output(data, num_limbs=4):
+    output_data = pd.DataFrame()
+
     if 'dataTimestamp' in data.columns:
-        data['dataTimestamp'] = data['dataTimestamp'].apply(lambda sec: format_time_column(sec, baseline=baseline))
+        output_data['dataTimestamp'] = data['dataTimestamp']
 
-    # Format the output and save to a CSV file
-    output_data = format_cole_kripke_output(data, num_limbs)
-    ensure_output_dir(output_file)
-    output_data.to_csv(output_file, index=False)
-    print(f"Multi-sensor results saved to {output_file} (using {num_limbs} limbs)")
+    for limb in range(1, num_limbs + 1):
+        output_data[f'Limb {limb} sleep_index'] = data[f'limb_{limb}_sleep_index']
+        output_data[f'Limb {limb} sleep'] = data[f'limb_{limb}_sleep']
+
     return output_data
-        
 
-def apply_cole_kripke_single(data, output_file="results/algorithm_outputs/cole_single_results.csv"):
-    data = actigraph_adjustment_sing(data)
-    data = apply_cole_kripke_1min_sing(data)
-    
-    # Convert timestamps back to the original
-    baseline = pd.Timestamp("2025-02-03 21:00:00")
-    if 'dataTimestamp' in data.columns:
-        data['dataTimestamp'] = data['dataTimestamp'].apply(lambda sec: format_time_column(sec, baseline=baseline))
+def apply_cole_kripke_single(data, baseline,
+                             output_file="results/algorithm_outputs/cole_single_results.csv"):
+    """
+    Cole-Kripke (1992) single-sensor sleep/wake algorithm.
 
-    # Ensure `dataTimestamp` is retained
+    Computes the sleep index from the 'axis1' column and classifies
+    each epoch: Sleep if SI < 1.0, Wake otherwise.
+    """
+    data = data.copy()
+    data['sleep_index'] = cole_kripke_index(data['axis1'])
+    data['sleep'] = np.where(data['sleep_index'] < 1, 'S', 'W')
+
+    _restore_timestamps(data, baseline)
+
     output_columns = ['dataTimestamp', 'sleep_index', 'sleep']
     ensure_output_dir(output_file)
     data[output_columns].to_csv(output_file, index=False)
     print(f"Single-sensor results saved to {output_file}")
     return data
 
-def apply_cole_kripke_mult_weighted(data, num_limbs=4, output_file="results/algorithm_outputs/cole_weighted_mult_results.csv"):
-    axes = ['axis1', 'axis2', 'axis3']  # x, y, z axes
 
-    for limb in range(1, num_limbs + 1):
-        limb_sleep_indices = []
+# Multi-sensor Cole-Kripke variants helper functions
 
-        for axis in axes:
-            column = f'{axis}_{limb}'
-            # Apply the adjustment and Cole-Kripke for each axis of each limb
-            data = actigraph_adjustment_mult(data, column)
-            data = apply_cole_kripke_1min_mult(data, column)
-            limb_sleep_indices.append(data[f'{column}_sleep_index'])
+def apply_cole_kripke_vote(data, baseline, num_limbs=4,
+                           output_file="results/algorithm_outputs/cole_vote_results.csv"):
+    """
+    Per-limb Cole-Kripke with anatomically-weighted vote on binary labels.
 
-        # Combine sleep indices for the limb by averaging the values across axes
-        data[f'limb_{limb}_sleep_index'] = sum(limb_sleep_indices) / len(limb_sleep_indices)
+    Each limb is classified independently (Sleep if index < 1.0), then
+    binary S/W labels are combined via weighted vote (wrists=1.0, ankles=0.5).
+    Sleep if weighted sleep votes >= weighted wake votes.
 
-        # Assign sleep state for the limb based on the combined sleep index
-        data[f'limb_{limb}_sleep'] = np.where(data[f'limb_{limb}_sleep_index'] < 1, 'S', 'W')
+    Note: information is lost at the binarization step — a limb barely
+    sleeping (index 0.99) and deeply sleeping (index 0.01) both vote 'S'.
+    Compare with apply_cole_kripke_weighted which preserves index magnitude.
+    """
+    data = compute_per_limb(data, num_limbs)
+    _restore_timestamps(data, baseline)
 
-    # Convert timestamps back to the original
-    baseline = pd.Timestamp("2025-02-03 21:00:00")
-    if 'dataTimestamp' in data.columns:
-        data['dataTimestamp'] = data['dataTimestamp'].apply(lambda sec: format_time_column(sec, baseline=baseline))
+    output_data = format_per_limb_output(data, num_limbs)
 
-    # Build per-limb + weighted consensus outputs
-    output_data = pd.DataFrame()
-    output_data['dataTimestamp'] = data['dataTimestamp']
+    # Weighted vote on per-limb binary labels
+    weights = {1: 0.5, 2: 1, 3: 0.5, 4: 1}
 
-    # 1) Copy limb sleep indices & labels
-    for limb in range(1, num_limbs + 1):
-        output_data[f'Limb {limb} sleep_index'] = data[f'limb_{limb}_sleep_index']
-        output_data[f'Limb {limb} sleep'] = data[f'limb_{limb}_sleep']
+    def vote(row):
+        w_sleep = sum(weights[i] for i in range(1, num_limbs + 1)
+                      if row[f'Limb {i} sleep'] == 'S')
+        w_wake = sum(weights[i] for i in range(1, num_limbs + 1)
+                     if row[f'Limb {i} sleep'] == 'W')
+        return 'S' if w_sleep >= w_wake else 'W'
 
-    # 2) Compute a weighted consensus index
-    #    ankles (1 & 3) get weight=0.5, wrists (2 & 4) = 1.0
-    weights = {1: 0.5, 2: 2.0, 3: 0.5, 4: 2.0}
-    total_w = sum(weights.values())
-    output_data['consensus_index'] = sum(
-        weights[i] * output_data[f'Limb {i} sleep_index'] for i in weights
-    ) / total_w
+    output_data['sleep'] = output_data.apply(vote, axis=1)
 
-    # 3) Threshold for a binary consensus_sleep ('S' if below 1, else 'W')
-    thresh = 0.7
-    output_data['consensus_sleep'] = np.where(
-        output_data['consensus_index'] < thresh, 'S', 'W'
-    )
-
-    # Save and return
     ensure_output_dir(output_file)
     output_data.to_csv(output_file, index=False)
-    print(f"Multi-sensor results saved to {output_file} (using {num_limbs} limbs)")
+    print(f"Cole-Kripke weighted vote results saved to {output_file}")
     return output_data
 
-def apply_cole_kripke_mult_majority(
-    data,
-    num_limbs=4,
-    output_file="results/algorithm_outputs/cole_majority_mult_results.csv",
-):
+
+def apply_cole_kripke_weighted(data, baseline, num_limbs=4,
+                               output_file="results/algorithm_outputs/cole_weighted_results.csv"):
     """
-    Run the standard multi‐limb Cole–Kripke
-    and then aggregate with a simple majority vote
-    across limbs.
+    Per-limb Cole-Kripke with anatomically-weighted consensus index.
+
+    Per-limb continuous sleep indices are combined via weighted average
+    (wrists=1.0, ankles=0.5), preserving magnitude information.
+    Sleep if consensus index < 0.7.
     """
-    axes = ['axis1', 'axis2', 'axis3']  # x, y, z axes
+    data = compute_per_limb(data, num_limbs)
+    _restore_timestamps(data, baseline)
 
-    # 1) per‐limb Cole–Kripke
-    for limb in range(1, num_limbs + 1):
-        limb_sleep_indices = []
-        for axis in axes:
-            col = f'{axis}_{limb}'
-            data = actigraph_adjustment_mult(data, col)
-            data = apply_cole_kripke_1min_mult(data, col)
-            limb_sleep_indices.append(data[f'{col}_sleep_index'])
+    output_data = format_per_limb_output(data, num_limbs)
 
-        data[f'limb_{limb}_sleep_index'] = sum(limb_sleep_indices) / len(limb_sleep_indices)
-        data[f'limb_{limb}_sleep'] = np.where(
-            data[f'limb_{limb}_sleep_index'] < 1, 'S', 'W'
-        )
+    # Weighted consensus on continuous indices
+    weights = {1: 0.5, 2: 1, 3: 0.5, 4: 1}
+    total_w = sum(weights[i] for i in range(1, num_limbs + 1))
+    output_data['consensus_index'] = sum(
+        weights[i] * output_data[f'Limb {i} sleep_index'] for i in range(1, num_limbs + 1)
+    ) / total_w
 
-    # 2) rewrite timestamps
-    baseline = pd.Timestamp("2025-02-03 21:00:00")
-    if 'dataTimestamp' in data.columns:
-        data['dataTimestamp'] = data['dataTimestamp'].apply(
-            lambda sec: format_time_column(sec, baseline=baseline)
-        )
+    output_data['consensus_sleep'] = np.where(
+        output_data['consensus_index'] < 0.7, 'S', 'W'
+    )
 
-    # 3) build output + majority vote
-    output_data = pd.DataFrame({
-        'dataTimestamp': data['dataTimestamp']
-    })
-    for limb in range(1, num_limbs + 1):
-        output_data[f'Limb {limb} sleep_index'] = data[f'limb_{limb}_sleep_index']
-        output_data[f'Limb {limb} sleep']        = data[f'limb_{limb}_sleep']
+    ensure_output_dir(output_file)
+    output_data.to_csv(output_file, index=False)
+    print(f"Cole-Kripke weighted consensus results saved to {output_file}")
+    return output_data
 
-    # majority‐vote consensus: S if ≥ half limbs say S
-    label_cols = [f'Limb {i} sleep' for i in range(1, num_limbs+1)]
+
+def apply_cole_kripke_majority(data, baseline, num_limbs=4,
+                               output_file="results/algorithm_outputs/cole_majority_results.csv"):
+    """
+    Per-limb Cole-Kripke with unweighted majority vote.
+
+    Each limb votes independently (Sleep if index < 1.0).
+    Final classification: Sleep if >= 3 of 4 limbs vote Sleep.
+    All limbs weighted equally regardless of anatomy.
+    """
+    data = compute_per_limb(data, num_limbs)
+    _restore_timestamps(data, baseline)
+
+    output_data = format_per_limb_output(data, num_limbs)
+
+    # Majority vote: Sleep if >= 3/4 limbs say Sleep
+    label_cols = [f'Limb {i} sleep' for i in range(1, num_limbs + 1)]
     threshold = num_limbs // 2 + 1
     output_data['consensus_majority'] = output_data[label_cols].apply(
         lambda row: 'S' if (row == 'S').sum() >= threshold else 'W',
         axis=1
     )
 
-    # 4) save & return
     ensure_output_dir(output_file)
     output_data.to_csv(output_file, index=False)
-    print(f"Multi-sensor majority‐vote results saved to {output_file}")
+    print(f"Cole-Kripke majority vote results saved to {output_file}")
     return output_data

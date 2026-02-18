@@ -1,4 +1,7 @@
-test_data/
+__pycache__/
+*.pyc
 *.csv
-test_data/
-*.csv
+data/
+results/
+approach.md
+TODO.md
